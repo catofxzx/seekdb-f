@@ -22,6 +22,15 @@ select length(ai_complete(
 '{"temperature":0.2,"max_tokens":16}')) > 0 as complete_config_ok;
 complete_config_ok
 1
+select length(ai_complete(
+'enhance_complete', ai_prompt('outer {0}', ai_prompt('inner {0}', 'nested')))) > 0
+as nested_prompt_ok;
+nested_prompt_ok
+1
+select length(ai_complete('enhance_complete', 'hello',
+json_object('temperature', 0.2, 'max_tokens', 16))) > 0 as json_config_ok;
+json_config_ok
+1
 call DBMS_AI_SERVICE.DROP_AI_MODEL('enhance_embed');
 call DBMS_AI_SERVICE.DROP_AI_MODEL_ENDPOINT('enhance_embed_ep');
 call DBMS_AI_SERVICE.CREATE_AI_MODEL(
@@ -61,6 +70,19 @@ from (select ai_rerank('enhance_rerank','apple',
 'text') as r) x;
 first_id	rerank_count
 a	2
+select json_length(r) as multi_batch_count
+from (select ai_rerank('enhance_rerank','apple',
+concat('[', group_concat(concat('{"id":"id-', lpad(n, 2, '0'),
+'","text":"document-', lpad(n, 2, '0'), '"}') order by n separator ','), ']'),
+'text') as r
+from (select 1 as n union all select 2 union all select 3 union all select 4
+union all select 5 union all select 6 union all select 7 union all select 8
+union all select 9 union all select 10 union all select 11 union all select 12
+union all select 13 union all select 14 union all select 15 union all select 16
+union all select 17 union all select 18 union all select 19 union all select 20
+union all select 21 union all select 22) numbers) x;
+multi_batch_count
+22
 call DBMS_AI_SERVICE.DROP_AI_MODEL('enhance_ollama_complete');
 call DBMS_AI_SERVICE.DROP_AI_MODEL_ENDPOINT('enhance_ollama_complete_ep');
 call DBMS_AI_SERVICE.CREATE_AI_MODEL(

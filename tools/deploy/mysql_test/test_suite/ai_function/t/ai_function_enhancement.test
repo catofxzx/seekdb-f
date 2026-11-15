@@ -26,6 +26,11 @@ select length(ai_complete('enhance_complete', 'hello', null)) > 0 as complete_ok
 select length(ai_complete(
   'enhance_complete', ai_prompt('describe {0}', json_object('text','你好')),
   '{"temperature":0.2,"max_tokens":16}')) > 0 as complete_config_ok;
+select length(ai_complete(
+  'enhance_complete', ai_prompt('outer {0}', ai_prompt('inner {0}', 'nested')))) > 0
+  as nested_prompt_ok;
+select length(ai_complete('enhance_complete', 'hello',
+       json_object('temperature', 0.2, 'max_tokens', 16))) > 0 as json_config_ok;
 
 --error 0,11118
 call DBMS_AI_SERVICE.DROP_AI_MODEL('enhance_embed');
@@ -63,6 +68,17 @@ select json_unquote(json_extract(r, '$[0].id')) as first_id,
   from (select ai_rerank('enhance_rerank','apple',
         '[{"id":"a","text":"apple"},{"id":"b","text":"banana"}]',
         'text') as r) x;
+select json_length(r) as multi_batch_count
+  from (select ai_rerank('enhance_rerank','apple',
+        concat('[', group_concat(concat('{"id":"id-', lpad(n, 2, '0'),
+               '","text":"document-', lpad(n, 2, '0'), '"}') order by n separator ','), ']'),
+        'text') as r
+          from (select 1 as n union all select 2 union all select 3 union all select 4
+                union all select 5 union all select 6 union all select 7 union all select 8
+                union all select 9 union all select 10 union all select 11 union all select 12
+                union all select 13 union all select 14 union all select 15 union all select 16
+                union all select 17 union all select 18 union all select 19 union all select 20
+                union all select 21 union all select 22) numbers) x;
 
 # Ollama provider: access_key 可为空，completion/embed 走原生协议
 --error 0,11118
