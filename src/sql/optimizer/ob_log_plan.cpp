@@ -72,6 +72,143 @@ static const char *ExplainColumnName[] =
   "COST"
 };
 
+namespace
+{
+/// @brief Check whether the expression tree contains a MATCH ... AGAINST expression.
+bool ob_fts_expr_contains_match(ObRawExpr *expr)
+{
+  bool contains = false;
+  if (nullptr != expr) {
+    if (expr->is_match_against_expr()) {
+      contains = true;
+    } else {
+      for (int64_t i = 0; !contains && i < expr->get_param_count(); ++i) {
+        contains = ob_fts_expr_contains_match(expr->get_param_expr(i));
+      }
+    }
+  }
+  return contains;
+}
+
+/// @brief Check whether the parent expression only consumes the match score as a boolean value.
+/// The relevance score is always positive for a matched document, so the boolean result of
+/// the condition does not depend on the magnitude of the score. Once the score is compared
+/// with any other value, the magnitude matters and the score has to be calculated.
+bool ob_fts_parent_only_use_match_as_bool(ObRawExpr *parent)
+{
+  bool only_bool = false;
+  if (nullptr == parent) {
+    // the match expr is the whole condition
+    only_bool = true;
+  } else {
+    switch (parent->get_expr_type()) {
+    case T_OP_BOOL:
+    case T_OP_AND:
+    case T_OP_OR:
+    case T_OP_NOT:
+      only_bool = true;
+      break;
+    default:
+      break;
+    }
+  }
+  return only_bool;
+}
+
+/// @brief Check whether the condition is nothing but the match expr, maybe wrapped by boolean
+/// operators. Such a condition can be skipped safely when the score is not calculated, because
+/// the matched documents are already filtered out by the retrieval iterator itself.
+bool ob_fts_cond_is_pure_match(ObRawExpr *expr)
+{
+  bool pure = false;
+  if (nullptr != expr) {
+    if (expr->is_match_against_expr()) {
+      pure = true;
+    } else if (1 == expr->get_param_count()) {
+      switch (expr->get_expr_type()) {
+      case T_OP_BOOL:
+      case T_OP_AND:
+      case T_OP_OR:
+      case T_OP_NOT:
+        pure = ob_fts_cond_is_pure_match(expr->get_param_expr(0));
+        break;
+      default:
+        break;
+      }
+    }
+  }
+  return pure;
+}
+
+/// @brief Check whether the match score is compared with other values in the condition.
+bool ob_fts_cond_need_match_score(ObRawExpr *expr, ObRawExpr *parent)
+{
+  bool need_score = false;
+  if (nullptr != expr) {
+    if (expr->is_match_against_expr()) {
+      const ObMatchFunRawExpr *match_expr = static_cast<const ObMatchFunRawExpr *>(expr);
+      need_score = match_expr->is_es_match()
+          || NATURAL_LANGUAGE_MODE != match_expr->get_mode_flag()
+          || !ob_fts_parent_only_use_match_as_bool(parent);
+    } else {
+      for (int64_t i = 0; !need_score && i < expr->get_param_count(); ++i) {
+        need_score = ob_fts_cond_need_match_score(expr->get_param_expr(i), expr);
+      }
+    }
+  }
+  return need_score;
+}
+
+/// @brief Check whether the query needs the accurate relevance score of the match expr.
+/// The score is only needed when it is exposed to the user or compared with other values.
+/// Otherwise only the matched documents are needed, and the score calculation, which needs an
+/// extra aggregation over the inverted index, can be skipped.
+bool ob_fts_stmt_need_match_score(const ObDMLStmt *stmt)
+{
+  bool need_score = false;
+  if (nullptr == stmt) {
+    need_score = true;
+  } else {
+    // the score is exposed to the user by the select list, the group by or the having condition
+    if (stmt->is_select_stmt()) {
+      const ObSelectStmt *select_stmt = static_cast<const ObSelectStmt *>(stmt);
+      for (int64_t i = 0; !need_score && i < select_stmt->get_select_items().count(); ++i) {
+        need_score = ob_fts_expr_contains_match(select_stmt->get_select_items().at(i).expr_);
+      }
+      if (!need_score) {
+        for (int64_t i = 0; !need_score && i < select_stmt->get_group_exprs().count(); ++i) {
+          need_score = ob_fts_expr_contains_match(select_stmt->get_group_exprs().at(i));
+        }
+      }
+      if (!need_score) {
+        for (int64_t i = 0; !need_score && i < select_stmt->get_having_exprs().count(); ++i) {
+          need_score = ob_fts_expr_contains_match(select_stmt->get_having_exprs().at(i));
+        }
+      }
+    }
+    // the score is used to sort the result
+    if (!need_score) {
+      for (int64_t i = 0; !need_score && i < stmt->get_order_items().count(); ++i) {
+        need_score = ob_fts_expr_contains_match(stmt->get_order_item(i).expr_);
+      }
+    }
+    // the score is compared with other values in the condition, or the condition holds more
+    // than the match expr, then the condition can not be skipped
+    if (!need_score) {
+      for (int64_t i = 0; !need_score && i < stmt->get_condition_exprs().count(); ++i) {
+        ObRawExpr *cond = stmt->get_condition_exprs().at(i);
+        if (ob_fts_expr_contains_match(cond)) {
+          if (!ob_fts_cond_is_pure_match(cond) || ob_fts_cond_need_match_score(cond, nullptr)) {
+            need_score = true;
+          }
+        }
+      }
+    }
+  }
+  return need_score;
+}
+} // namespace
+
 ObLogPlan::ObLogPlan(ObOptimizerContext &ctx, const ObDMLStmt *stmt)
   : optimizer_context_(ctx),
     allocator_(ctx.get_allocator()),
@@ -12270,6 +12407,11 @@ int ObLogPlan::prepare_text_retrieval_info(const uint64_t ref_table_id,
     tr_info.rowkey_idx_tid_ = rowkey_doc_tid;
     tr_info.data_table_id_ = ref_table_id;
     tr_info.pushdown_match_filter_ = nullptr;
+    // The relevance score is only needed when the query exposes it to the user or compares
+    // it with other values. In the other cases only the matched documents are needed, and
+    // the score calculation, which requires an extra aggregation over the inverted index,
+    // can be skipped.
+    need_calc_relevance = ob_fts_stmt_need_match_score(get_stmt());
     tr_info.need_calc_relevance_ = need_calc_relevance;
   }
   return ret;

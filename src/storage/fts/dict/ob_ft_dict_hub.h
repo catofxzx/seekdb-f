@@ -17,6 +17,7 @@
 #ifndef _OCEANBASE_STORAGE_FTS_DICT_OB_FT_DICT_HUB_H_
 #define _OCEANBASE_STORAGE_FTS_DICT_OB_FT_DICT_HUB_H_
 
+#include "lib/allocator/ob_allocator.h"
 #include "lib/charset/ob_charset.h"
 #include "lib/lock/ob_bucket_lock.h"
 #include "storage/fts/dict/ob_ft_dict_def.h"
@@ -93,10 +94,12 @@ private:
 };
 
 class ObFTCacheRangeContainer;
+class ObIFTDict;
 class ObFTDictHub
 {
 public:
-  ObFTDictHub() : is_inited_(false), dict_map_(), rw_dict_lock_() {}
+  ObFTDictHub(ObIAllocator &alloc)
+      : is_inited_(false), dict_map_(), rw_dict_lock_(), parsed_dict_lock_(), allocator_(alloc), parsed_dicts_() {}
   ~ObFTDictHub() {}
 
   int init();
@@ -107,17 +110,37 @@ public:
 
   int load_cache(const ObFTDictDesc &desc, ObFTCacheRangeContainer &container);
 
+  /// @brief Get the parsed dictionary of the given dict type.
+  /// The dictionary is parsed from the cache on the first call and is shared by all the
+  /// parsers afterwards. The dictionary is read only after it is built, so it can be used
+  /// by multiple threads concurrently. This avoids loading the dictionary from the cache
+  /// and building the dict objects again for every tokenize call.
+  int get_parsed_dict(const ObFTDictDesc &desc, ObIFTDict *&dict);
+
 private:
   int get_dict_info(const ObFTDictInfoKey &key, ObFTDictInfo &info);
 
   int put_dict_info(const ObFTDictInfoKey &key, const ObFTDictInfo &info);
 
+private:
+  struct ObFTParsedDict
+  {
+    ObFTParsedDict() : container(nullptr), dict(nullptr) {}
+    ObFTCacheRangeContainer *container; // holds the cache handles which pin the dict blocks
+    ObIFTDict *dict;
+  };
 
 private:
+  static constexpr int K_MAX_DICT_BUCKET = 128;    // for now, only built-in dicts.
+  static constexpr int K_MAX_PARSED_DICT_CNT = 4;  // the dict types are continuous
   bool is_inited_;
   // holds info of dict
   hash::ObHashMap<ObFTDictInfoKey, ObFTDictInfo> dict_map_;
   ObBucketLock rw_dict_lock_;
+  ObBucketLock parsed_dict_lock_;
+  ObIAllocator &allocator_;
+  // the parsed dicts shared by all the parsers, indexed by the dict type
+  ObFTParsedDict parsed_dicts_[K_MAX_PARSED_DICT_CNT];
 };
 
 } //  namespace storage

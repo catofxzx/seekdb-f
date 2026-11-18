@@ -30,10 +30,10 @@ namespace storage
 {
 int ObFTDictHub::init()
 {
-  static constexpr int K_MAX_DICT_BUCKET = 128; // for now, only built-in dicts.
   int ret = OB_SUCCESS;
   if (OB_FAIL(dict_map_.create(K_MAX_DICT_BUCKET, "dict_map"))) {
   } else if (OB_FAIL(rw_dict_lock_.init(K_MAX_DICT_BUCKET))) {
+  } else if (OB_FAIL(parsed_dict_lock_.init(K_MAX_PARSED_DICT_CNT))) {
   } else {
     is_inited_ = true;
   }
@@ -43,6 +43,19 @@ int ObFTDictHub::init()
 int ObFTDictHub::destroy()
 {
   int ret = OB_SUCCESS;
+  for (int64_t i = 0; i < K_MAX_PARSED_DICT_CNT; ++i) {
+    ObFTParsedDict &parsed_dict = parsed_dicts_[i];
+    if (OB_NOT_NULL(parsed_dict.dict)) {
+      parsed_dict.dict->~ObIFTDict();
+      allocator_.free(parsed_dict.dict);
+      parsed_dict.dict = nullptr;
+    }
+    if (OB_NOT_NULL(parsed_dict.container)) {
+      parsed_dict.container->~ObFTCacheRangeContainer();
+      allocator_.free(parsed_dict.container);
+      parsed_dict.container = nullptr;
+    }
+  }
   is_inited_ = false;
   return ret;
 }
@@ -114,6 +127,56 @@ int ObFTDictHub::load_cache(const ObFTDictDesc &desc, ObFTCacheRangeContainer &c
   return ret;
 }
 
+
+int ObFTDictHub::get_parsed_dict(const ObFTDictDesc &desc, ObIFTDict *&dict)
+{
+  int ret = OB_SUCCESS;
+  dict = nullptr;
+  const uint32_t dict_type = static_cast<uint32_t>(desc.type_);
+  if (OB_UNLIKELY(!is_inited_)) {
+    ret = OB_NOT_INIT;
+  } else if (OB_UNLIKELY(dict_type >= K_MAX_PARSED_DICT_CNT)) {
+    ret = OB_NOT_SUPPORTED;
+  } else {
+    ObBucketHashWLockGuard guard(parsed_dict_lock_, dict_type);
+    ObFTParsedDict &parsed_dict = parsed_dicts_[dict_type];
+    if (OB_NOT_NULL(parsed_dict.dict)) {
+      dict = parsed_dict.dict;
+    } else {
+      ObFTCacheRangeContainer *container = OB_NEWx(ObFTCacheRangeContainer, &allocator_, allocator_);
+      if (OB_ISNULL(container)) {
+        ret = OB_ALLOCATE_MEMORY_FAILED;
+      } else {
+        if (OB_FAIL(load_cache(desc, *container))) {
+          if (OB_ENTRY_NOT_EXIST == ret) {
+            // the dict is not in the cache yet, build it
+            ret = OB_SUCCESS;
+            if (OB_FAIL(build_cache(desc, *container))) {
+            }
+          }
+        }
+        if (OB_SUCC(ret)) {
+          ObFTRangeDict *range_dict = OB_NEWx(ObFTRangeDict, &allocator_, allocator_, container, desc);
+          if (OB_ISNULL(range_dict)) {
+            ret = OB_ALLOCATE_MEMORY_FAILED;
+          } else if (OB_FAIL(range_dict->init())) {
+            range_dict->~ObFTRangeDict();
+            allocator_.free(range_dict);
+          } else {
+            parsed_dict.container = container;
+            parsed_dict.dict = range_dict;
+            dict = range_dict;
+          }
+        }
+        if (OB_FAIL(ret)) {
+          container->~ObFTCacheRangeContainer();
+          allocator_.free(container);
+        }
+      }
+    }
+  }
+  return ret;
+}
 
 int ObFTDictHub::get_dict_info(const ObFTDictInfoKey &key, ObFTDictInfo &info)
 {

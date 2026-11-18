@@ -250,6 +250,11 @@ eval select /*+opt_param('hidden_column_visible','true')*/ __pk_increment as doc
 
 # query with data
 
+explain select digest from t_ir_single_column
+    where match (detail) against ("+computer -database" in boolean mode);
+select digest from t_ir_single_column
+    where match (detail) against ("+computer -database" in boolean mode)
+    order by digest;
 
 eval select digest, detail from t_ir_single_column where match (detail) against ("distributed database");
 eval select digest, detail from t_ir_single_column where match (detail) against ("database");

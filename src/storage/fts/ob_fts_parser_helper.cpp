@@ -216,7 +216,7 @@ int ObFTParseData::init_dict_hub()
 {
   // make dict
   int ret = OB_SUCCESS;
-  if (OB_ISNULL(dict_hub_ = OB_NEWx(ObFTDictHub, &handler_allocator_))) {
+  if (OB_ISNULL(dict_hub_ = OB_NEWx(ObFTDictHub, &handler_allocator_, handler_allocator_))) {
     ret = OB_ALLOCATE_MEMORY_FAILED;
   } else if (OB_FAIL(dict_hub_->init())) {
   }

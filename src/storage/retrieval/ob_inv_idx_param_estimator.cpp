@@ -224,7 +224,9 @@ int ObBM25ParamEstimator::do_estimation(sql::ObEvalCtx &eval_ctx)
         total_doc_cnt_ = est_ctx_.total_doc_cnt_expr_->locate_expr_datum(eval_ctx, 0).get_int();
       }
     } else if (OB_ISNULL(est_ctx_.total_doc_cnt_expr_)) {
-      ret = OB_ERR_UNEXPECTED;
+      // The total doc count expr is not generated when the relevance score is not
+      // needed, the estimated total doc count is used directly in that case.
+      total_doc_cnt_ = est_ctx_.estimated_total_doc_cnt_;
     } else {
       ObDatum &total_doc_cnt = est_ctx_.total_doc_cnt_expr_->locate_datum_for_write(eval_ctx);
       total_doc_cnt.set_int(est_ctx_.estimated_total_doc_cnt_);

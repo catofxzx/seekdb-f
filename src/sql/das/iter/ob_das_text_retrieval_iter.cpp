@@ -870,6 +870,12 @@ int ObDASTRCacheIter::get_cur_row(double &relevance, ObDocIdExt &doc_id) const
     // once: relevance_[cur_idx_],doc_id_[cur_idx_]=>item{relevance,doc_id}. tiwce: item=>losetree
     if (ir_ctdef_->need_calc_relevance()) {
       relevance = relevance_[cur_idx_];
+    } else {
+      // The relevance score is not calculated in this mode. The score is only used to
+      // decide whether the token matches the document, and a posting always means the
+      // token is present in the document, so a positive constant keeps the same match
+      // result as the calculated score.
+      relevance = 1.0;
     }
     doc_id = doc_id_[cur_idx_];
   }

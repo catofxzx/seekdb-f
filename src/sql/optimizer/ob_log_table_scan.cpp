@@ -704,7 +704,11 @@ int ObLogTableScan::extract_pushdown_filters(ObIArray<ObRawExpr*> &nonpushdown_f
         } else if (is_vec_adaptive_scan()) {
           add_to_scan_filter = true;
         }
-      } else if (is_text_retrieval_scan() && need_text_retrieval_calc_relevance()) {
+      } else if (is_text_retrieval_scan()) {
+        // The match filter is always evaluated after the text retrieval scan, the scan
+        // itself only returns the matched documents. Keeping the filter out of the
+        // storage push down filters also keeps the plan stable when the accurate
+        // relevance score is not needed.
         if (OB_FAIL(nonpushdown_filters.push_back(filters.at(i)))) {
         } else if (is_vec_adaptive_scan()) {
           add_to_scan_filter = true;

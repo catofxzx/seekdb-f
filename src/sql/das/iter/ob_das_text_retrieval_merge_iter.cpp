@@ -1918,6 +1918,12 @@ int ObDASTRDaatIter::fill_loser_tree_item(
     ObExpr *relevance_expr = ir_ctdef_->relevance_expr_;
     const ObDatum &relevance_datum = relevance_expr->locate_expr_datum(*ir_rtdef_->eval_ctx_);
     item.relevance_ = relevance_datum.get_double();
+  } else {
+    // The relevance score is not calculated in this mode. The score is only used to
+    // decide whether the token matches the document, and a posting always means the
+    // token is present in the document, so a positive constant keeps the same match
+    // result as the calculated score.
+    item.relevance_ = 1.0;
   }
   return ret;
 }
