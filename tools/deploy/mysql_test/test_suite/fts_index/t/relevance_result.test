@@ -1,0 +1,43 @@
+# owner: codex
+# owner group: storage
+# description: check the match result and the relevance score of the fulltext index.
+
+--disable_warnings
+drop database if exists fts;
+create database fts;
+use fts;
+set ob_query_timeout = 10000000000;
+
+create table memo (id BIGINT AUTO_INCREMENT, title VARCHAR(100), body TEXT, FULLTEXT INDEX fti(title, body));
+
+insert into memo (title, body) values ('全文索引', '全文索引的分词器热路径优化包括解析器实例复用等技术');
+insert into memo (title, body) values ('分词器', '分词器热路径优化可以显著降低 CPU 开销');
+insert into memo (title, body) values ('倒排索引', '倒排索引是全文检索的核心数据结构');
+insert into memo (title, body) values ('Security Audit', 'Completed the annual security audit. No major vulnerabilities were found.');
+insert into memo (title, body) values ('Full-text search', 'Full-text search indexing requires efficient tokenization on the hot path.');
+
+--enable_warnings
+
+--result_format 4
+
+# the matched documents are the same no matter whether the relevance score is needed
+select count(*) from memo where match(title, body) against('全文索引');
+select count(*) from memo where match(title, body) against('分词器');
+select count(*) from memo where match(title, body) against('全文索引 分词器');
+select count(*) from memo where match(title, body) against('全文索引 分词器 倒排索引');
+
+# the documents are returned in the relevance order when the score is projected
+select id, match(title, body) against('全文索引 分词器') as score from memo
+where match(title, body) against('全文索引 分词器') order by score desc, id;
+
+# the score is compared with a threshold, the result must not change
+select id from memo where match(title, body) against('全文索引') > 0 order by id;
+select id from memo where match(title, body) against('全文索引') > 0.5 order by id;
+select id from memo where match(title, body) against('全文索引') < 0.5 order by id;
+select id from memo where match(title, body) against('全文索引') = 0 order by id;
+
+# the score is not projected, but it is used to sort the result
+select id from memo where match(title, body) against('全文索引') order by match(title, body) against('全文索引') desc, id;
+
+# the tokenize result is not changed
+select tokenize('全文索引的分词器热路径优化', 'ik');
