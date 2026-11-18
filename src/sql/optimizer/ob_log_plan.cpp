@@ -105,7 +105,6 @@ bool ob_fts_parent_only_use_match_as_bool(ObRawExpr *parent)
     case T_OP_BOOL:
     case T_OP_AND:
     case T_OP_OR:
-    case T_OP_NOT:
       only_bool = true;
       break;
     default:
@@ -129,7 +128,6 @@ bool ob_fts_cond_is_pure_match(ObRawExpr *expr)
       case T_OP_BOOL:
       case T_OP_AND:
       case T_OP_OR:
-      case T_OP_NOT:
         pure = ob_fts_cond_is_pure_match(expr->get_param_expr(0));
         break;
       default:

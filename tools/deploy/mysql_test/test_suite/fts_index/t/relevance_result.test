@@ -39,5 +39,8 @@ select id from memo where match(title, body) against('全文索引') = 0 order b
 # the score is not projected, but it is used to sort the result
 select id from memo where match(title, body) against('全文索引') order by match(title, body) against('全文索引') desc, id;
 
+# the NOT operator inverts the result of the match expr
+select id from memo where not match(title, body) against('全文索引') order by id;
+
 # the tokenize result is not changed
 select tokenize('全文索引的分词器热路径优化', 'ik');
