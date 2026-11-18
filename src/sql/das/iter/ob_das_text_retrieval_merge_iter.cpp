@@ -721,12 +721,18 @@ int ObDASTextRetrievalMergeIter::do_total_doc_cnt()
     // use estimated document count for relevance estimation
     // Need to note that when total doc count is under estimated too much, the IDF component in BM25
     // would be invalidate and result to token frequence have major influence on final relevance score
-    ObExpr *total_doc_cnt_expr = ir_ctdef_->get_doc_agg_ctdef()->pd_expr_spec_.pd_storage_aggregate_output_.at(0);
-    if (OB_ISNULL(total_doc_cnt_expr)) {
-      ret = OB_ERR_UNEXPECTED;
+    const ObDASScanCtDef *doc_agg_ctdef = ir_ctdef_->get_doc_agg_ctdef();
+    if (OB_ISNULL(doc_agg_ctdef) || doc_agg_ctdef->pd_expr_spec_.pd_storage_aggregate_output_.count() == 0) {
+      // The doc id aggregate ctdef is not generated when the relevance score is not needed,
+      // the estimated total doc count is used directly in that case.
     } else {
-      ObDatum &total_doc_cnt = total_doc_cnt_expr->locate_datum_for_write(*ir_rtdef_->eval_ctx_);
-      total_doc_cnt.set_int(ir_ctdef_->estimated_total_doc_cnt_);
+      ObExpr *total_doc_cnt_expr = doc_agg_ctdef->pd_expr_spec_.pd_storage_aggregate_output_.at(0);
+      if (OB_ISNULL(total_doc_cnt_expr)) {
+        ret = OB_ERR_UNEXPECTED;
+      } else {
+        ObDatum &total_doc_cnt = total_doc_cnt_expr->locate_datum_for_write(*ir_rtdef_->eval_ctx_);
+        total_doc_cnt.set_int(ir_ctdef_->estimated_total_doc_cnt_);
+      }
     }
   }
   return ret;
@@ -1050,14 +1056,21 @@ int ObDASTRTaatIter::fill_total_doc_cnt()
   int ret = OB_SUCCESS;
   ObEvalCtx::BatchInfoScopeGuard guard(*ir_rtdef_->eval_ctx_);
   guard.set_batch_idx(0);
-  ObExpr *total_doc_cnt_expr = ir_ctdef_->get_doc_agg_ctdef()->pd_expr_spec_.pd_storage_aggregate_output_.at(0);
-  if (OB_ISNULL(total_doc_cnt_expr)) {
-      ret = OB_ERR_UNEXPECTED;
+  const ObDASScanCtDef *doc_agg_ctdef = ir_ctdef_->get_doc_agg_ctdef();
+  if (OB_ISNULL(doc_agg_ctdef) || doc_agg_ctdef->pd_expr_spec_.pd_storage_aggregate_output_.count() == 0) {
+    // The doc id aggregate ctdef is not generated when the relevance score is not needed,
+    // the estimated total doc count is used directly in that case.
+    total_doc_cnt_ = ir_ctdef_->estimated_total_doc_cnt_;
   } else {
-    ObDatum &total_doc_cnt = total_doc_cnt_expr->locate_expr_datum(*ir_rtdef_->eval_ctx_);
-    total_doc_cnt_ = total_doc_cnt.get_int();
-    if (-1 == total_doc_cnt_) {
+    ObExpr *total_doc_cnt_expr = doc_agg_ctdef->pd_expr_spec_.pd_storage_aggregate_output_.at(0);
+    if (OB_ISNULL(total_doc_cnt_expr)) {
       ret = OB_ERR_UNEXPECTED;
+    } else {
+      ObDatum &total_doc_cnt = total_doc_cnt_expr->locate_expr_datum(*ir_rtdef_->eval_ctx_);
+      total_doc_cnt_ = total_doc_cnt.get_int();
+      if (-1 == total_doc_cnt_) {
+        ret = OB_ERR_UNEXPECTED;
+      }
     }
   }
   return ret;
