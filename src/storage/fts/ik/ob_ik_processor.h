@@ -103,6 +103,16 @@ public:
 
   int process(TokenizeContext &ctx);
 
+  /// @brief Process the char which is already got from the context, it avoids getting
+  /// the char and the char type again for every processor.
+  int process(TokenizeContext &ctx,
+              const char *ch,
+              const uint8_t char_len,
+              const ObFTCharUtil::CharType type)
+  {
+    return do_process(ctx, ch, char_len, type);
+  }
+
   virtual int do_process(TokenizeContext &ctx,
                          const char *ch,
                          const uint8_t char_len,

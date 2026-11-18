@@ -382,17 +382,32 @@ int ObFTRangeDict::find_first_char_range(const ObString &single_word, ObIFTDict 
 {
   int ret = OB_SUCCESS;
   bool found = false;
-  for (int i = 0; OB_SUCC(ret) && !found && i < range_dicts_.size(); ++i) {
+  // The ranges are sorted by the first char and do not overlap, so the range which
+  // contains the char is found with a binary search. The linear search compares the
+  // char with the boundary of every range, which is on the hot path of the tokenizer.
+  int64_t low = 0;
+  int64_t high = range_dicts_.size() - 1;
+  while (!found && low <= high) {
+    const int64_t mid = low + (high - low) / 2;
+    const ObFTRange &range = range_dicts_[mid];
     if (ObCharset::strcmp(ObCollationType::CS_TYPE_UTF8MB4_BIN,
-                          range_dicts_[i].start_.get_word(),
+                          range.start_.get_word(),
                           single_word)
-            <= 0
-        && ObCharset::strcmp(ObCollationType::CS_TYPE_UTF8MB4_BIN,
-                             range_dicts_[i].end_.get_word(),
-                             single_word)
-               >= 0) {
-      dict = range_dicts_[i].dict_;
-      found = true;
+        <= 0) {
+      // the char is not less than the start of the range
+      if (ObCharset::strcmp(ObCollationType::CS_TYPE_UTF8MB4_BIN,
+                            range.end_.get_word(),
+                            single_word)
+          >= 0) {
+        dict = range.dict_;
+        found = true;
+      } else {
+        // the char is greater than the end of the range, go to the right
+        low = mid + 1;
+      }
+    } else {
+      // the char is less than the start of the range, go to the left
+      high = mid - 1;
     }
   }
   if (!found) {

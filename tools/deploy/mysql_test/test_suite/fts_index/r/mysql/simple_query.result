@@ -1047,8 +1047,8 @@ Outputs & filters:
       sort_keys([MATCH(t_ir_single_column.detail) AGAINST('+computer -database' IN BOOLEAN MODE), DESC])
   1 - output([t_ir_single_column.digest], [MATCH(t_ir_single_column.detail) AGAINST('+computer -database' IN BOOLEAN MODE)]), filter(nil), rowset=16
       access([t_ir_single_column.__pk_increment], [t_ir_single_column.digest]), partitions(p0)
-      is_index_back=true, is_global_index=false,
-      calc_relevance=true, match_expr(MATCH(t_ir_single_column.detail) AGAINST('+computer -database' IN BOOLEAN MODE)),
+      is_index_back=true, is_global_index=false, 
+      calc_relevance=true, match_expr(MATCH(t_ir_single_column.detail) AGAINST('+computer -database' IN BOOLEAN MODE)), 
       pushdown_match_filter(MATCH(t_ir_single_column.detail) AGAINST('+computer -database' IN BOOLEAN MODE))
 select digest from t_ir_single_column
     where match (detail) against ("+computer -database" in boolean mode)
